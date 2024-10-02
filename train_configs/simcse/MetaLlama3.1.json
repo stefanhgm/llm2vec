@@ -1,6 +1,6 @@
 {
     "model_name_or_path": "meta-llama/Meta-Llama-3.1-8B-Instruct",
-    "peft_model_name_or_path": "/home/sthe14/llm2vec/output/mntp/Meta-Llama-3.1-8B-Instruct_6000steps/checkpoint-200",
+    "peft_model_name_or_path": "/home/sthe14/llm2vec/output/mntp/Meta-Llama-3.1-8B-Instruct/checkpoint-1000",
     "simcse_dropout": 0.3,
     "bidirectional": true,
     "pooling_mode": "mean",
@@ -15,7 +15,7 @@
     "disable_tqdm": false,
     "max_seq_length": 128,
     "overwrite_output_dir": true,
-    "output_dir": "output/mntp-simcse/Meta-Llama-3.1-8B-Instruct",
+    "output_dir": "output/mntp-simcse/Meta-Llama-3.1-8B-Instruct_1000_mntp_steps",
     "logging_steps": 50,
     "save_steps": 200,
     "save_only_model": true,

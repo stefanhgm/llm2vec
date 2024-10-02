@@ -281,6 +281,12 @@ python experiments/mteb_eval.py --model_name McGill-NLP/LLM2Vec-Meta-Llama-3-8B-
 
 The evaluation script supports all the models available in the [HuggingFace collection](https://huggingface.co/collections/McGill-NLP/llm2vec-660e14f536b3c8d10b3f1c34).
 
+## Changes for Llama 3.1
+
+* Added commit from: https://github.com/McGill-NLP/llm2vec/commit/03382c358494a4e2f07222455b366fb75d625ab7
+* Installed `transformers-4.43.1`
+* Add local model config to mteb in `mteb/models/llm2vec_models.py`
+* Add config from original llama with some changes to local llama models
 
 ## Citation
 If you find our work helpful, please cite us:
