@@ -299,3 +299,12 @@ url={https://openreview.net/forum?id=IW1PR7vEBf}
 
 ## Bugs or questions?
 If you have any questions about the code, feel free to open an issue on the GitHub repository.
+
+## Reproduce Supervised LLM2Vec
+- Create environment.yaml based on provided environment file (email)
+- Comment out flash-attention due to install issue
+- Create environment based on environment.yaml (excluding flash-attention)
+- Install local LLM2Vec package `python -m pip install -e . --no-dependencies` without dependencies to keep existing environment
+- Manually install flash-attention `FLASH_ATTENTION_SKIP_CUDA_BUILD=TRUE python -m pip install flash-attn==2.5.8 --no-build-isolation --no-dependencies`
+- Verify environment via `conda env export --no-builds | grep -v "prefix" > environment-repro.yml`
+- Install `python -m pip install accelerate==0.34.2 --no-dependencies`, o.w. process hangs
