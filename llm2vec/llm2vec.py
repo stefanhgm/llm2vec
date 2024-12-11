@@ -124,6 +124,7 @@ class LLM2Vec(nn.Module):
             model = PeftModel.from_pretrained(
                 model,
                 peft_model_name_or_path,
+                is_trainable=(not merge_peft),
             )
             if merge_peft:
                 model = model.merge_and_unload()

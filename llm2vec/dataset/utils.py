@@ -1,4 +1,6 @@
 from ..dataset import E5Data
+from ..dataset import E5MimicDIData
+from ..dataset import E5MedNLIData
 from ..dataset import Wiki1M
 
 
@@ -13,6 +15,8 @@ def load_dataset(dataset_name, split="validation", file_path=None, **kwargs):
     """
     dataset_mapping = {
         "E5": E5Data,
+        "E5MimicDI": E5MimicDIData,
+        "E5MedNLI": E5MedNLIData,
         "Wiki1M": Wiki1M,
     }
 

@@ -4,6 +4,7 @@ import os
 import sys
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from regex import T
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, SequentialSampler
@@ -179,6 +180,12 @@ class ModelArguments:
             "help": ("The pooling mode to use in the model."),
             "choices": ["mean", "weighted_mean", "eos_token"],
         },
+    )
+    add_new_peft_model: Optional[bool] = field(
+        default=True,
+        metadata={
+            "help": ("Whether to add a new PEFT model on top of the base model."),
+        }, 
     )
 
 
@@ -442,7 +449,7 @@ def main():
         base_model_name_or_path=model_args.model_name_or_path,
         enable_bidirectional=model_args.bidirectional,
         peft_model_name_or_path=model_args.peft_model_name_or_path,
-        merge_peft=True,
+        merge_peft=model_args.add_new_peft_model,
         pooling_mode=model_args.pooling_mode,
         max_length=model_args.max_seq_length,
         torch_dtype=torch_dtype,
@@ -450,12 +457,13 @@ def main():
     )
 
     # model organization is LLM2VecModel.model -> HF Model, we have to apply PEFT to the inner model
-    model.model = initialize_peft(
-        model.model,
-        lora_r=custom_args.lora_r,
-        lora_alpha=2 * custom_args.lora_r,
-        lora_dropout=custom_args.lora_dropout,
-    )
+    if model_args.add_new_peft_model:
+        model.model = initialize_peft(
+            model.model,
+            lora_r=custom_args.lora_r,
+            lora_alpha=2 * custom_args.lora_r,
+            lora_dropout=custom_args.lora_dropout,
+        )
 
     tokenizer = model.tokenizer
 

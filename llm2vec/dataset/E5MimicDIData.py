@@ -29,20 +29,28 @@ E5_EMBEDDING_PROMPTS = {
     "t2ranking": "Given a Chinese search query, retrieve web passages that answer the question",
     "trivia_qa": "Retrieve Wikipedia passages that answer the question",
     "MimicIVDISup-120-480": "Given a medical discharge summary, retrieve semantically similar medical notes",
-    "mli_all_v1_pos_neg": "Given a premise from a medical note, retrieve a hypothesis that is entailed by the premise",
 }
 
+# Treated completely separate and are mixed into the batches at the end
+# Also not shuffled, because already shuffled and some datasets use fixed negatives within the same dataset
+MEDICAL_DATASETS = ["MimicIVDISup-120-480"]
 
-class E5MMData(Dataset):
+class E5MimicDIData(Dataset):
     def __init__(
         self,
-        dataset_name: str = "E5MM",
+        dataset_name: str = "E5MimicDI",
         split: str = "validation",
         file_path: str = "cache/echo-data",
         effective_batch_size: int = 32,
         shuffle_individual_datasets: bool = True,
         separator: str = "!@#$%^&*()",
-        ratio_medical: float = 0.0,
+        # TODO: Adjust based on setting
+        ratio_medical: float = 0.05,
+        # Original code: 1000 batches of size 512 (8 GPUs with effective batch size 64)
+        # Here: Use 4 GPUs and effective batch size 256, so set offset to 2000.
+        #       Want to use 1000 batches of size 512, so must use 2000 batches of size 256.
+        num_non_medical_batches: int = 2000,
+        num_non_medical_batches_offset: int = 2000,
     ):
         self.dataset_name = dataset_name
         self.split = split
@@ -50,23 +58,44 @@ class E5MMData(Dataset):
         self.shuffle_individual_datasets = shuffle_individual_datasets
         self.separator = separator
         self.ratio_medical = ratio_medical
+        self.num_non_medical_batches = num_non_medical_batches
+        self.num_non_medical_batches_offset = num_non_medical_batches_offset
 
         self.data = []
         self.load_data(file_path)
 
     def __len__(self):
         return len(self.data)
+    
+    def get_batches(self, data_map):
+        # Refactored this method from the original code to reuse it for medical datasets
+        datasets = list(data_map.keys())
+        all_batches = []
+        for dataset in datasets:
+            dataset_samples = data_map[dataset]
+            for i in range(0, len(dataset_samples), self.effective_batch_size):
+                batch = dataset_samples[i : i + self.effective_batch_size]
+                if len(batch) == self.effective_batch_size:
+                    all_batches.append(batch)
+                else:
+                    logger.info(f"Skip 1 batch for dataset {dataset}.")
+        return all_batches
 
     def load_data(self, file_path: str = None):
         logger.info(f"Loading E5 data from {file_path}...")
 
-        data_map = {}
+        non_medical_data_map = {}
         all_samples = []
         id_ = 0
+        medical_data_map = {}
         for dataset in E5_EMBEDDING_PROMPTS:
             logger.info(f"Loading dataset {dataset}...")
-            if dataset not in data_map:
-                data_map[dataset] = []
+            if dataset in MEDICAL_DATASETS:
+                if dataset not in medical_data_map:
+                    medical_data_map[dataset] = []
+            else:
+                if dataset not in non_medical_data_map:
+                    non_medical_data_map[dataset] = []
             with open(os.path.join(file_path, f"{dataset}.jsonl"), "r") as f:
                 dataset_samples = f.readlines()
 
@@ -98,8 +127,11 @@ class E5MMData(Dataset):
                     pos = self.separator + sample["positive"]
                     neg = self.separator + sample["negative"]
 
-                data_map[dataset].append(id_)
-
+                if dataset in MEDICAL_DATASETS:
+                    medical_data_map[dataset].append(id_)
+                else:
+                    non_medical_data_map[dataset].append(id_)
+                
                 all_samples.append(
                     DataSample(
                         id_=id_,
@@ -113,67 +145,76 @@ class E5MMData(Dataset):
 
         # Combine split1 and split2
         new_data_map = {}
-        for dataset in data_map:
+        for dataset in non_medical_data_map:
             new_dataset = dataset.replace("_split1", "").replace("_split2", "")
             if new_dataset not in new_data_map:
                 new_data_map[new_dataset] = []
-            new_data_map[new_dataset] += data_map[dataset]
-        data_map = new_data_map
+            new_data_map[new_dataset] += non_medical_data_map[dataset]
+        non_medical_data_map = new_data_map
 
         if self.shuffle_individual_datasets:
-            # random.seed(42)  # Fix seed for reproducibility
-            for task, samples in data_map.items():
-                if task not in ["MimicIVDISup-120-480"]:
-                    random.shuffle(samples)
+            for task, samples in non_medical_data_map.items():
+                random.shuffle(samples)
 
-        datasets = list(data_map.keys())
-        medical_datasets = ['MimicIVDISup-120-480', 'mli_all_v1_pos_neg']
-        medical_datasets = [dataset for dataset in medical_datasets if dataset in datasets]
-        num_medical_batches = 0
-
+        logger.info(
+            f"Batching Echo data properly for effective batch size of {self.effective_batch_size}..."
+        )
+        
+        all_batches = self.get_batches(non_medical_data_map)
+        random.shuffle(all_batches)
+        
+        # In original code, the first sample now has id 1302898 and there are 23582 batches
+        # TODO: Careful sanity check for batch sizes 64 and 512 based on original code
+        assert ((self.effective_batch_size != 64) or (all_batches[0][0] == 1302898 and len(all_batches) == 23582)) and \
+            ((self.effective_batch_size != 512) or (all_batches[0][0] == 1382680 and len(all_batches) == 2942))
+        
+        # Now subselect number of batches and replace random batches with medical batches of medical datasets
+        logger.info(f"Selecting {self.num_non_medical_batches} (w/ offset {self.num_non_medical_batches_offset}) of {len(all_batches)} non-medical batches.")
+        all_batches = all_batches[self.num_non_medical_batches_offset:self.num_non_medical_batches_offset + self.num_non_medical_batches]
+        # Combination of splits not needed for medical datasets
         # Prepare batches from medical datasets
         if self.ratio_medical > 0:
-            total_batches = sum(
-                len(data_map[dataset]) // self.effective_batch_size for dataset in datasets
-            )
+            total_batches = len(all_batches)
             num_medical_batches = int(total_batches * self.ratio_medical)
-            medical_samples = []
-            for dataset in medical_datasets:
-                medical_samples.extend(data_map[dataset])
-            medical_batches = [
-                medical_samples[i:i + self.effective_batch_size]
-                for i in range(0, len(medical_samples), self.effective_batch_size)
-            ]
-            random.seed(42)  # Ensure consistent sampling
+            medical_batches = self.get_batches(medical_data_map)
+            num_unique_medical_batches = len(medical_batches)
             random.shuffle(medical_batches)
-            medical_batches = medical_batches[:num_medical_batches]
+            medical_batches_idx = [i % len(medical_batches) for i in range(num_medical_batches)]
+            medical_batches = [medical_batches[i] for i in medical_batches_idx]
+            logger.info(f"Selected {num_medical_batches} medical batches from {num_unique_medical_batches} unqiue batches.")
         else:
+            logger.info("No medical batches selected.")
             medical_batches = []
-
-        # Prepare original non-medical batches
-        all_batches = []
-        for dataset in datasets:
-            if dataset in medical_datasets:
-                continue
-            dataset_samples = data_map[dataset]
-            for i in range(0, len(dataset_samples), self.effective_batch_size):
-                batch = dataset_samples[i:i + self.effective_batch_size]
-                if len(batch) == self.effective_batch_size:
-                    all_batches.append(batch)
-
-        # random.seed(42)  # Fix seed for deterministic shuffling
-        random.shuffle(all_batches)
-
+            
+        num_medical_batches = len(medical_batches)
+        assert num_medical_batches <= len(all_batches), f"Selected {num_medical_batches} medical batches but only {len(all_batches)} batches available to replace."
+        
         # Replace some original batches with medical batches
-        all_batches[:len(medical_batches)] = medical_batches
-        random.shuffle(all_batches)
-
+        replace_idx = list(range(len(all_batches)))
+        random.shuffle(replace_idx)
+        replace_idx = replace_idx[:num_medical_batches]
+        for i, idx in enumerate(replace_idx):
+            all_batches[idx] = medical_batches[i]
+        
+        # Now combine all samples via their indices
         final_idx_order = []
         for batch in all_batches:
-            final_idx_order.extend(batch)
+            for idx in batch:
+                final_idx_order.append(idx)
 
         self.data = [all_samples[idx] for idx in final_idx_order]
-        logger.info(f"Loaded {len(self.data)} samples (repro).")
+        
+        # Sanity check: ensure that batches in self.data are of same task with correct query
+        task_name = ""
+        queries = []
+        for i, sample in enumerate(self.data):
+            if i % self.effective_batch_size == 0:
+                task_name = sample.task_name
+                queries = E5_EMBEDDING_PROMPTS[task_name] if isinstance(E5_EMBEDDING_PROMPTS[task_name], list) else [E5_EMBEDDING_PROMPTS[task_name]]
+            assert sample.task_name == task_name, f"Task name mismatch at index {i}."
+            assert any([sample.query.startswith(query) for query in queries]), f"Query mismatch at index {i}."
+
+        logger.info(f"Loaded {len(self.data)} samples (MM).")
 
     def __getitem__(self, index):
         sample = self.data[index]
