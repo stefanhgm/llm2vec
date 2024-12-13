@@ -1,6 +1,9 @@
 from ..dataset import E5Data
 from ..dataset import E5MimicDIData
 from ..dataset import E5MedNLIData
+from ..dataset import E5CureData
+from ..dataset import E5MedEmbedData
+from ..dataset import E5NoteContrastData
 from ..dataset import Wiki1M
 
 
@@ -17,6 +20,9 @@ def load_dataset(dataset_name, split="validation", file_path=None, **kwargs):
         "E5": E5Data,
         "E5MimicDI": E5MimicDIData,
         "E5MedNLI": E5MedNLIData,
+        "E5Cure": E5CureData,
+        "E5MedEmbed": E5MedEmbedData,
+        "E5NoteContrast": E5NoteContrastData,
         "Wiki1M": Wiki1M,
     }
 
